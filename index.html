@@ -4,7 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="한울이 세계여행">
 <title>꼬마 탐험가 한울이의 세계여행</title>
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
   :root{
@@ -228,7 +232,7 @@
 <div class="overlay" id="setov">
   <div class="setcard">
     <h2>🔊 소리(읽어주기) 설정</h2>
-    <p>읽어주기 기능은 <b>OpenAI 음성</b>을 사용해요. 본인의 OpenAI API 키를 붙여넣어 주세요. 키는 <b>이 기기(브라우저)에만</b> 저장되고 다른 곳으로 전송되지 않아요.</p>
+    <p><b>키가 없어도</b> 기기에 내장된 음성으로 읽어줘요. <b>OpenAI API 키</b>를 넣으면 더 자연스러운 동화 목소리로 바뀌어요. 키는 <b>이 기기에만</b> 저장되고 다른 곳으로 전송되지 않아요.</p>
     <label>OpenAI API 키</label>
     <input id="keyin" type="password" placeholder="sk-..." autocomplete="off">
     <label>목소리 고르기</label>
@@ -860,11 +864,36 @@ lightbox.addEventListener("click",closeLightbox);
 /* =================== OpenAI 읽어주기(TTS) =================== */
 const player=document.getElementById("player");
 const audioCache=new Map();
-function stopAudio(){ player.pause(); player.currentTime=0; }
+function stopAudio(){ player.pause(); player.currentTime=0; try{ speechSynthesis.cancel(); }catch(e){} }
 function play(url){ stopAudio(); player.src=url; player.play().catch(()=>{}); }
+/* 기기 내장 음성(Web Speech) — OpenAI 키 없거나 실패 시 폴백. 글자로 언어 자동 선택 */
+function detectLang(t){
+  if(/[가-힣]/.test(t)) return "ko-KR";
+  if(/[぀-ヿ]/.test(t)) return "ja-JP";
+  if(/[฀-๿]/.test(t)) return "th-TH";
+  if(/[؀-ۿ]/.test(t)) return "ar-SA";
+  if(/[Ѐ-ӿ]/.test(t)) return "ru-RU";
+  if(/[ऀ-ॿ]/.test(t)) return "hi-IN";
+  if(/[Ͱ-Ͽ]/.test(t)) return "el-GR";
+  if(/[一-鿿]/.test(t)) return "zh-CN";
+  return "en-US";
+}
+function webSpeak(text){
+  try{
+    if(!("speechSynthesis" in window)) return false;
+    speechSynthesis.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang=detectLang(text); u.rate=.95; u.pitch=1.05;
+    const vs=speechSynthesis.getVoices();
+    const v=vs.find(x=>x.lang===u.lang)||vs.find(x=>x.lang&&x.lang.slice(0,2)===u.lang.slice(0,2));
+    if(v) u.voice=v;
+    speechSynthesis.speak(u);
+    return true;
+  }catch(e){ return false; }
+}
 async function speak(text,btn,silent){
-  const key=localStorage.getItem("oai_key");
-  if(!key){ openSettings(); return; }
+  let key=null; try{ key=localStorage.getItem("oai_key"); }catch(e){}
+  if(!key){ webSpeak(text); return; }   // 키 없으면 기기 내장 음성으로
   const voice=localStorage.getItem("oai_voice")||"coral";
   const ck=voice+"|"+text;
   if(audioCache.has(ck)){ play(audioCache.get(ck)); return; }
@@ -880,7 +909,7 @@ async function speak(text,btn,silent){
     const url=URL.createObjectURL(await res.blob());
     audioCache.set(ck,url); play(url);
   }catch(e){
-    if(!silent) alert("소리를 만들지 못했어요 😢\nAPI 키가 올바른지 설정에서 확인해 주세요.\n(오류: "+e.message+")");
+    webSpeak(text);   // OpenAI 실패해도 기기 내장 음성으로 폴백
   } finally{ if(btn){btn.classList.remove("busy"); if(swap) btn.textContent=old;} }
 }
 
@@ -919,10 +948,8 @@ let greetDone=false;
 player.addEventListener("playing",()=>{ greetDone=true; });
 function introGreet(){
   if(greetDone) return;
-  greetDone=true;                                               // 한 번만 시도
-  let key=null; try{ key=localStorage.getItem("oai_key"); }catch(e){}
-  if(!key) return;                                              // 키 없으면 조용히 패스
-  speak(GREET_TEXT,null,true);                                  // 실패해도 얼럿 안 띄움
+  greetDone=true;                          // 한 번만 시도
+  speak(GREET_TEXT,null,true);             // 키 있으면 OpenAI, 없으면 기기 내장 음성
 }
 // 브라우저 자동재생 차단(특히 모바일) 대비: 첫 화면 터치에 딱 한 번 인사 재생
 document.addEventListener("pointerdown",function _greetUnlock(){ introGreet(); },{once:true});
